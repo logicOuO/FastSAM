@@ -3,7 +3,65 @@
 *.pyd
 .DS_Store
 .idea
-weights
+# weights/ 目录只有 FastSAM.pt，直接不忽略
 build/
 *.egg-info/
-gradio_cached_examples
+gradio_cached_examples/
+
+# Training outputs
+runs/
+wandb/
+*.log
+
+# Datasets
+datasets/
+data/images/
+data/labels/
+
+# Model exports
+*.onnx
+*.pth
+*.torchscript
+*.engine
+*.tflite
+# Large model files (>100MB, GitHub limit)
+*.pt
+*.rknn
+weights/
+
+# Training scripts (generated)
+# train_*.py
+# export_*.py
+# visualize_*.py
+# compare_*.py
+# test_*.py
+
+# Temporary files
+*.tmp
+*.swp
+*~
+.cache/
+__pycache__/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python virtual env
+venv/
+env/
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Comparison results
+comparison_*/
+
+dami

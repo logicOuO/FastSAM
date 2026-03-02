@@ -50,7 +50,6 @@ class Detect(nn.Module):
         elif self.dynamic or self.shape != shape:
             self.anchors, self.strides = (x.transpose(0, 1) for x in make_anchors(x, self.stride, 0.5))
             self.shape = shape
-
         x_cat = torch.cat([xi.view(shape[0], self.no, -1) for xi in x], 2)
         if self.export and self.format in ('saved_model', 'pb', 'tflite', 'edgetpu', 'tfjs'):  # avoid TF FlexSplitV ops
             box = x_cat[:, :self.reg_max * 4]
@@ -89,7 +88,20 @@ class Segment(Detect):
         """Return model outputs and mask coefficients if training, otherwise return outputs and mask coefficients."""
         p = self.proto(x[0])  # mask protos
         bs = p.shape[0]  # batch size
-
+        
+        # 导出 ONNX 增加(修改) - 分离 mask coefficients
+        if self.export:
+            mc = [self.cv4[i](x[i]) for i in range(self.nl)]
+            # 直接计算 cv2 和 cv3 输出，不调用 self.detect
+            det_out = []
+            for i in range(self.nl):
+                t1 = self.cv2[i](x[i])  # reg
+                t2 = self.cv3[i](x[i])  # cls
+                det_out.append(t1)
+                det_out.append(t2)
+            # 返回: reg1, cls1, reg2, cls2, reg3, cls3, mc1, mc2, mc3, proto
+            return det_out + mc + [p]
+        
         mc = torch.cat([self.cv4[i](x[i]).view(bs, self.nm, -1) for i in range(self.nl)], 2)  # mask coefficients
         x = self.detect(self, x)
         if self.training:
