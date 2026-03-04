@@ -1,31 +1,29 @@
 #!/usr/bin/env python3
 """
-Convert dami JSON annotations to YOLO segmentation format.
+将 new/ 文件夹的数据转换为 YOLO 格式
 
-Strategy:
-- Prefer enhancePolygon/polygon over rectangle
-- Label mapping: "1"->0, "2"->1, "3"->2
-- Normalize coordinates to [0,1]
-- Output format: class x1 y1 x2 y2 ... (normalized polygon points)
+策略:
+- 使用 nc=1 (class-agnostic)，所有标注统一为 class 0
+- 矩形框转换为 4 个角点的多边形格式
+- 坐标归一化到 [0,1]
+- 仅保留 label "1" 的标注（高质量标注）
 """
 
 import json
 import glob
 import os
+import shutil
 from pathlib import Path
 
-# Configuration
-INPUT_DIR = "dami"
-OUTPUT_DIR = "datasets/dami_yolo"
+# 配置
+INPUT_DIR = "new"
+OUTPUT_DIR = "datasets/dami_new_yolo"
 IMAGES_DIR = os.path.join(OUTPUT_DIR, "images")
 LABELS_DIR = os.path.join(OUTPUT_DIR, "labels")
 
-# Label mapping
-LABEL_MAP = {"1": 0, "2": 1, "3": 2}
-
 
 def convert_annotation(json_path):
-    """Convert single JSON file to YOLO format."""
+    """转换单个 JSON 文件到 YOLO 格式 (nc=1, class-agnostic)"""
     with open(json_path, "r") as f:
         data = json.load(f)
 
@@ -33,34 +31,29 @@ def convert_annotation(json_path):
     img_height = data["imageHeight"]
     img_name = data["imagePath"]
 
-    # Prepare output lines
     yolo_lines = []
 
     for shape in data["shapes"]:
+        # 仅保留 label "1" 的标注（有用目标）
         label = str(shape.get("label", ""))
-        if label not in LABEL_MAP:
-            print(f"Warning: Unknown label '{label}' in {json_path}, skipping")
+        if label != "1":
             continue
 
-        class_id = LABEL_MAP[label]
-        shape_type = shape.get("shape_type", "")
+        # nc=1: 所有标注统一为 class 0
+        class_id = 0
+
         points = shape.get("points", [])
-
         if not points:
-            print(f"Warning: Empty points in {json_path}, skipping shape")
             continue
 
-        # Normalize points to [0, 1]
+        # 归一化坐标到 [0, 1]
         normalized_points = []
         for x, y in points:
-            norm_x = x / img_width
-            norm_y = y / img_height
-            # Clamp to [0, 1]
-            norm_x = max(0.0, min(1.0, norm_x))
-            norm_y = max(0.0, min(1.0, norm_y))
+            norm_x = max(0.0, min(1.0, x / img_width))
+            norm_y = max(0.0, min(1.0, y / img_height))
             normalized_points.extend([norm_x, norm_y])
 
-        # Build YOLO line: class x1 y1 x2 y2 ...
+        # YOLO 格式: class x1 y1 x2 y2 x3 y3 x4 y4
         yolo_line = f"{class_id} " + " ".join(
             f"{coord:.6f}" for coord in normalized_points
         )
@@ -70,17 +63,20 @@ def convert_annotation(json_path):
 
 
 def main():
-    # Create output directories
+    # 确保输出目录存在
     os.makedirs(IMAGES_DIR, exist_ok=True)
     os.makedirs(LABELS_DIR, exist_ok=True)
 
     json_files = sorted(glob.glob(os.path.join(INPUT_DIR, "*.json")))
 
-    print(f"Found {len(json_files)} JSON files")
-    print(f"Output: {OUTPUT_DIR}")
+    print(f"处理新数据集:")
+    print(f"  输入目录: {INPUT_DIR}")
+    print(f"  输出目录: {OUTPUT_DIR}")
+    print(f"  JSON 文件数: {len(json_files)}")
     print()
 
     converted_count = 0
+    total_annotations = 0
     skipped_count = 0
 
     for json_path in json_files:
@@ -88,39 +84,47 @@ def main():
             img_name, yolo_lines = convert_annotation(json_path)
 
             if not yolo_lines:
-                print(f"Skipped {json_path}: no valid annotations")
+                print(f"跳过 {json_path}: 无有效标注")
                 skipped_count += 1
                 continue
 
-            # Write label file
+            # 写入标签文件
             base_name = Path(img_name).stem
             label_path = os.path.join(LABELS_DIR, f"{base_name}.txt")
 
             with open(label_path, "w") as f:
                 f.write("\n".join(yolo_lines) + "\n")
 
-            # Copy image (symlink to save space)
+            # 复制图片
             src_img = os.path.join(INPUT_DIR, img_name)
             dst_img = os.path.join(IMAGES_DIR, img_name)
 
             if os.path.exists(src_img):
                 if not os.path.exists(dst_img):
-                    os.symlink(os.path.abspath(src_img), dst_img)
+                    shutil.copy2(src_img, dst_img)
             else:
-                print(f"Warning: Image not found: {src_img}")
+                print(f"警告: 图片不存在: {src_img}")
+                skipped_count += 1
+                continue
 
             converted_count += 1
+            total_annotations += len(yolo_lines)
+
+            if converted_count % 50 == 0:
+                print(f"已处理: {converted_count}/{len(json_files)}")
 
         except Exception as e:
-            print(f"Error processing {json_path}: {e}")
+            print(f"错误处理 {json_path}: {e}")
             skipped_count += 1
 
     print()
-    print(f"Conversion complete:")
-    print(f"  Converted: {converted_count}")
-    print(f"  Skipped: {skipped_count}")
-    print(f"  Images: {IMAGES_DIR}")
-    print(f"  Labels: {LABELS_DIR}")
+    print(f"转换完成:")
+    print(f"  转换图片: {converted_count}")
+    print(f"  跳过文件: {skipped_count}")
+    print(f"  总标注数: {total_annotations}")
+    print(f"  平均标注: {total_annotations / converted_count:.1f} 个/张")
+    print(f"  图片目录: {IMAGES_DIR}")
+    print(f"  标签目录: {LABELS_DIR}")
 
 
 if __name__ == "__main__":
