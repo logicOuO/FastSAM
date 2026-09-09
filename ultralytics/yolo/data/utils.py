@@ -172,8 +172,9 @@ def polygons2masks(imgsz, polygons, color, downsample_ratio=1):
 
 def polygons2masks_overlap(imgsz, segments, downsample_ratio=1):
     """Return a (640, 640) overlap mask."""
-    masks = np.zeros((imgsz[0] // downsample_ratio, imgsz[1] // downsample_ratio),
-                     dtype=np.int32 if len(segments) > 255 else np.uint8)
+    # 实例数超过 255 时，需提升到 int32，避免 NumPy 2.x 下 uint8 * 256 溢出。
+    mask_dtype = np.int32 if len(segments) > 255 else np.uint8
+    masks = np.zeros((imgsz[0] // downsample_ratio, imgsz[1] // downsample_ratio), dtype=mask_dtype)
     areas = []
     ms = []
     for si in range(len(segments)):
@@ -182,7 +183,7 @@ def polygons2masks_overlap(imgsz, segments, downsample_ratio=1):
         areas.append(mask.sum())
     areas = np.asarray(areas)
     index = np.argsort(-areas)
-    ms = np.array(ms)[index]
+    ms = np.asarray(ms, dtype=mask_dtype)[index]
     for i in range(len(segments)):
         mask = ms[i] * (i + 1)
         masks = masks + mask

@@ -1,13 +1,22 @@
-from ultralytics import YOLO
-import gradio as gr
-import torch
-from utils.tools_gradio import fast_process
-from utils.tools import format_results, box_prompt, point_prompt, text_prompt
-from PIL import ImageDraw
-import numpy as np
+import sys
+from pathlib import Path
 
-# Load the pre-trained model
-model = YOLO('./weights/FastSAM.pt')
+import gradio as gr
+import numpy as np
+import torch
+from PIL import ImageDraw
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from fastsam.demo_utils import box_prompt, format_results, point_prompt, text_prompt
+from fastsam.gradio_utils import fast_process
+from ultralytics import YOLO
+
+# 加载官方 FastSAM 权重。
+model = YOLO(str(PROJECT_ROOT / "weights" / "FastSAM.pt"))
+EXAMPLES_DIR = PROJECT_ROOT / "examples" / "images"
 
 device = torch.device(
     "cuda"
@@ -61,8 +70,19 @@ description_p = """ # 🎯 Instructions for points mode
                 
               """
 
-examples = [["examples/sa_8776.jpg"], ["examples/sa_414.jpg"], ["examples/sa_1309.jpg"], ["examples/sa_11025.jpg"],
-            ["examples/sa_561.jpg"], ["examples/sa_192.jpg"], ["examples/sa_10039.jpg"], ["examples/sa_862.jpg"]]
+examples = [
+    [str(EXAMPLES_DIR / name)]
+    for name in (
+        "sa_8776.jpg",
+        "sa_414.jpg",
+        "sa_1309.jpg",
+        "sa_11025.jpg",
+        "sa_561.jpg",
+        "sa_192.jpg",
+        "sa_10039.jpg",
+        "sa_862.jpg",
+    )
+]
 
 default_example = examples[0]
 
@@ -183,7 +203,7 @@ def get_points_with_draw(image, label, evt: gr.SelectData):
 
 cond_img_e = gr.Image(label="Input", value=default_example[0], type='pil')
 cond_img_p = gr.Image(label="Input with points", value=default_example[0], type='pil')
-cond_img_t = gr.Image(label="Input with text", value="examples/dogs.jpg", type='pil')
+cond_img_t = gr.Image(label="Input with text", value=str(EXAMPLES_DIR / "dogs.jpg"), type='pil')
 
 segm_img_e = gr.Image(label="Segmented Image", interactive=False, type='pil')
 segm_img_p = gr.Image(label="Segmented Image with points", interactive=False, type='pil')
@@ -327,7 +347,7 @@ with gr.Blocks(css=css, title='Fast Segment Anything') as demo:
                         clear_btn_t = gr.Button("Clear", variant="secondary")
 
                 gr.Markdown("Try some of the examples below ⬇️")
-                gr.Examples(examples=[["examples/dogs.jpg"]] + examples,
+                gr.Examples(examples=[[str(EXAMPLES_DIR / "dogs.jpg")]] + examples,
                             inputs=[cond_img_e],
                             # outputs=segm_img_e,
                             # fn=segment_everything,
@@ -370,5 +390,6 @@ with gr.Blocks(css=css, title='Fast Segment Anything') as demo:
     clear_btn_p.click(clear, outputs=[cond_img_p, segm_img_p])
     clear_btn_t.click(clear_text, outputs=[cond_img_p, segm_img_p, text_box])
 
-demo.queue()
-demo.launch()
+if __name__ == "__main__":
+    demo.queue()
+    demo.launch()

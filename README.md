@@ -2,6 +2,29 @@
 
 # Fast Segment Anything
 
+> 本仓库维护 FastSAM 的训练、Prompt 推理、ONNX 导出与部署流程。训练说明见
+> [docs/TRAINING.md](docs/TRAINING.md)，Prompt 推理说明见
+> [docs/INFERENCE.md](docs/INFERENCE.md)。
+
+## 当前仓库结构
+
+```text
+FastSAM/
+├── fastsam/             # FastSAM 核心包与 Prompt 工具
+├── ultralytics/         # YOLOv8-Seg 网络和训练框架
+├── train_fastsam.py     # 唯一主训练入口
+├── configs/             # 数据集配置
+├── data/                # 原始数据和 YOLO 分割数据
+├── weights/             # 预训练权重与 ONNX 模型
+├── scripts/             # 数据、训练辅助、导出和推理脚本
+├── apps/                # Gradio 应用
+├── deploy/              # 可选部署配置
+├── examples/            # 最小示例与示例图片
+├── docs/                # 使用文档
+├── tests/               # 自动化测试
+└── runs/                # 训练与推理结果
+```
+
 [[`📕Paper`](https://arxiv.org/pdf/2306.12156.pdf)] [[`🤗HuggingFace Demo`](https://huggingface.co/spaces/An-619/FastSAM)] [[`Colab demo`](https://colab.research.google.com/drive/1oX14f6IneGGw612WgVlAiy91UHwFAvr9?usp=sharing)] [[`Replicate demo & API`](https://replicate.com/casia-iva-lab/fastsam)] [~~[`OpenXLab Demo`](https://openxlab.org.cn/apps/detail/zxair/FastSAM)~~] [[`Model Zoo`](#model-checkpoints)] [[`BibTeX`](#citing-fastsam)] [[`Video Demo`](https://youtu.be/yHNPyqazYYU)]
 
 ![FastSAM Speed](assets/head_fig.png)
@@ -31,7 +54,7 @@ Clone the repository locally:
 git clone https://github.com/CASIA-IVA-Lab/FastSAM.git
 ```
 
-Create the conda env. The code requires `python>=3.7`, as well as `pytorch>=1.7` and `torchvision>=0.8`. Please follow the instructions [here](https://pytorch.org/get-started/locally/) to install both PyTorch and TorchVision dependencies. Installing both PyTorch and TorchVision with CUDA support is strongly recommended.
+Create the conda env. The code requires `python>=3.9`, as well as `pytorch>=1.7` and `torchvision>=0.8`. Please follow the instructions [here](https://pytorch.org/get-started/locally/) to install both PyTorch and TorchVision dependencies. Installing both PyTorch and TorchVision with CUDA support is strongly recommended.
 
 ```shell
 conda create -n FastSAM python=3.9
@@ -60,22 +83,22 @@ Then, you can run the scripts to try the everything mode and three prompt modes.
 
 ```shell
 # Everything mode
-python Inference.py --model_path ./weights/FastSAM.pt --img_path ./images/dogs.jpg
+python scripts/inference/prompt.py
 ```
 
 ```shell
 # Text prompt
-python Inference.py --model_path ./weights/FastSAM.pt --img_path ./images/dogs.jpg  --text_prompt "the yellow dog"
+python scripts/inference/prompt.py --text_prompt "the yellow dog"
 ```
 
 ```shell
 # Box prompt (xywh)
-python Inference.py --model_path ./weights/FastSAM.pt --img_path ./images/dogs.jpg --box_prompt "[[570,200,230,400]]"
+python scripts/inference/prompt.py --box_prompt "[[570,200,230,400]]"
 ```
 
 ```shell
 # Points prompt
-python Inference.py --model_path ./weights/FastSAM.pt --img_path ./images/dogs.jpg  --point_prompt "[[520,360],[620,300]]" --point_label "[1,0]"
+python scripts/inference/prompt.py --point_prompt "[[520,360],[620,300]]" --point_label "[1,0]"
 ```
 
 You can use the following code to generate all masks and visualize the results.
@@ -83,7 +106,7 @@ You can use the following code to generate all masks and visualize the results.
 from fastsam import FastSAM, FastSAMPrompt
 
 model = FastSAM('./weights/FastSAM.pt')
-IMAGE_PATH = './images/dogs.jpg'
+IMAGE_PATH = './examples/images/dogs.jpg'
 DEVICE = 'cpu'
 everything_results = model(IMAGE_PATH, device=DEVICE, retina_masks=True, imgsz=1024, conf=0.4, iou=0.9,)
 prompt_process = FastSAMPrompt(IMAGE_PATH, everything_results, device=DEVICE)
@@ -91,7 +114,7 @@ prompt_process = FastSAMPrompt(IMAGE_PATH, everything_results, device=DEVICE)
 # everything prompt
 ann = prompt_process.everything_prompt()
 
-prompt_process.plot(annotations=ann,output_path='./output/dog.jpg',)
+prompt_process.plot(annotations=ann,output_path='./runs/inference/dog.jpg',)
 
 ```
 For point/box/text mode prompts, use:
@@ -107,7 +130,7 @@ ann = prompt_process.text_prompt(text='a photo of a dog')
 # point_label default [0] [1,0] 0:background, 1:foreground
 ann = prompt_process.point_prompt(points=[[620, 360]], pointlabel=[1])
 
-prompt_process.plot(annotations=ann,output_path='./output/dog.jpg',)
+prompt_process.plot(annotations=ann,output_path='./runs/inference/dog.jpg',)
 
 ```
 
@@ -117,10 +140,11 @@ You are also welcomed to try our Colab demo: [FastSAM_example.ipynb](https://col
 
 ## Different Inference Options
 
-We provide various options for different purposes, details are in [MORE_USAGES.md](MORE_USAGES.md).
+更多参数和示例见 [docs/INFERENCE.md](docs/INFERENCE.md)。
 
 ## Training or Validation
-Training from scratch or validation: [Training and Validation Code](https://github.com/CASIA-IVA-Lab/FastSAM/releases).
+当前训练流程见 [docs/TRAINING.md](docs/TRAINING.md)，主入口为
+`train_fastsam.py`。
 
 ## Web demo
 
@@ -130,7 +154,7 @@ Training from scratch or validation: [Training and Validation Code](https://gith
 
 ```
 # Download the pre-trained model in "./weights/FastSAM.pt"
-python app_gradio.py
+python apps/gradio_app.py
 ```
 
 - This demo is also hosted on [HuggingFace Space](https://huggingface.co/spaces/An-619/FastSAM).

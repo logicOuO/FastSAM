@@ -1,50 +1,39 @@
 #!/usr/bin/env python3
-"""
-ONNX 模型测试脚本（参考 C++ 后处理逻辑）
+"""验证 FastSAM ONNX 模型，并保存可视化结果和合并二值掩码。"""
 
-正确实现:
-1. DFL 解码（softmax + weighted sum）
-2. NMS
-3. Mask 生成（mask_coef @ proto）
-"""
+import argparse
+from pathlib import Path
 
-import onnxruntime as ort
 import cv2
 import numpy as np
-import os
+import onnxruntime as ort
 
-# ============ 配置 ============
-ONNX_MODEL = "FastSAM-dami-new_64x1920.onnx"
-INPUT_DIR = "datasets/dami_new_yolo/images/val"
-OUTPUT_DIR = "runs/visualize/onnx_test_v2"
-MASK_DIR = os.path.join(OUTPUT_DIR, "binary_masks")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_MODEL = PROJECT_ROOT / "weights" / "FastSAM-64x1920.onnx"
+DEFAULT_INPUT = PROJECT_ROOT / "data" / "fastsam" / "images" / "val"
+DEFAULT_OUTPUT = PROJECT_ROOT / "runs" / "visualize" / "fastsam_onnx"
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 
 INPUT_WIDTH = 1920
 INPUT_HEIGHT = 64
 CONF_THRESH = 0.25
 IOU_THRESH = 0.7
 
-# 检测头配置
 HEAD_NUM = 3
-MAP_SIZES = [(8, 240), (4, 120), (2, 60)]
 STRIDES = [8, 16, 32]
 DFL_NUM = 16
-MASK_NUM = 32
-
-# Proto 尺寸
-SEG_HEIGHT = 16
-SEG_WIDTH = 480
 
 
 # ============ 工具函数 ============
 def sigmoid(x):
-    return 1.0 / (1.0 + np.exp(-x))
+    """数值稳定的 Sigmoid。"""
+    return 1.0 / (1.0 + np.exp(-np.clip(x, -60, 60)))
 
 
 def softmax(x):
-    """Softmax along last axis"""
-    exp_x = np.exp(x - np.max(x))
-    return exp_x / np.sum(exp_x)
+    """计算最后一维上的 Softmax。"""
+    exp_x = np.exp(x - np.max(x, axis=-1, keepdims=True))
+    return exp_x / np.sum(exp_x, axis=-1, keepdims=True)
 
 
 def decode_dfl(reg_vec):
@@ -108,7 +97,7 @@ def nms(detections, iou_thresh):
 
 
 # ============ 后处理 ============
-def postprocess(outputs):
+def postprocess(outputs, conf_thresh=CONF_THRESH, iou_thresh=IOU_THRESH):
     """
     后处理 ONNX 输出
     outputs: 10 个张量
@@ -118,6 +107,9 @@ def postprocess(outputs):
         6,7,8: mask coefficients
         9: proto
     """
+    if len(outputs) < 10:
+        raise ValueError(f"ONNX 输出数量异常，期望至少 10 个，实际 {len(outputs)} 个")
+
     detections = []
 
     for head_idx in range(HEAD_NUM):
@@ -126,7 +118,7 @@ def postprocess(outputs):
         mc = outputs[6 + head_idx]  # [1, 32, H, W]
 
         stride = STRIDES[head_idx]
-        h, w = MAP_SIZES[head_idx]
+        h, w = reg.shape[2:]
 
         # 遍历特征图
         for i in range(h):
@@ -135,7 +127,7 @@ def postprocess(outputs):
                 cls_val = cls[0, 0, i, j]
                 conf = sigmoid(cls_val)
 
-                if conf > CONF_THRESH:
+                if conf > conf_thresh:
                     # Anchor 中心点
                     anchor_x = j + 0.5
                     anchor_y = i + 0.5
@@ -164,7 +156,7 @@ def postprocess(outputs):
                     )
 
     # NMS
-    detections = nms(detections, IOU_THRESH)
+    detections = nms(detections, iou_thresh)
 
     # 提取 proto
     proto = outputs[9]  # [1, 32, 16, 480]
@@ -180,15 +172,18 @@ def generate_masks(detections, proto, img_shape):
     if len(detections) == 0:
         return []
 
-    proto = proto[0]  # [32, 16, 480]
-    proto_flat = proto.reshape(MASK_NUM, -1)  # [32, 16*480]
+    proto = proto[0]
+    mask_num, seg_height, seg_width = proto.shape
+    proto_flat = proto.reshape(mask_num, -1)
 
     masks = []
     for det in detections:
         # mask = sigmoid(mask_coef @ proto)
         mask_coef = det["mask_coef"]  # [32]
-        mask_raw = np.matmul(mask_coef, proto_flat)  # [16*480]
-        mask_raw = mask_raw.reshape(SEG_HEIGHT, SEG_WIDTH)  # [16, 480]
+        if mask_coef.shape[0] != mask_num:
+            raise ValueError(f"Mask 系数维度 {mask_coef.shape[0]} 与 Proto 维度 {mask_num} 不一致")
+        mask_raw = np.matmul(mask_coef, proto_flat)
+        mask_raw = mask_raw.reshape(seg_height, seg_width)
         mask_prob = sigmoid(mask_raw)
 
         # Resize 到原图尺寸
@@ -214,7 +209,8 @@ def visualize(img, detections, masks):
     vis_img = img.copy()
     binary_mask = np.zeros((img.shape[0], img.shape[1]), dtype=np.uint8)
 
-    for det, mask in zip(detections, masks):
+    palette = ((255, 80, 80), (80, 255, 80), (80, 80, 255), (255, 200, 80))
+    for index, (det, mask) in enumerate(zip(detections, masks)):
         x1, y1, x2, y2 = [int(v) for v in det["box"]]
         score = det["score"]
 
@@ -228,7 +224,7 @@ def visualize(img, detections, masks):
         )
 
         # 叠加 mask（半透明）
-        color = np.random.randint(0, 255, 3).tolist()
+        color = palette[index % len(palette)]
         mask_colored = np.zeros_like(img)
         mask_colored[mask > 0] = color
         vis_img = cv2.addWeighted(vis_img, 1.0, mask_colored, 0.4, 0)
@@ -239,27 +235,59 @@ def visualize(img, detections, masks):
     return vis_img, binary_mask
 
 
-# ============ 主函数 ============
+def parse_args():
+    """解析 ONNX 验证参数。"""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--model", type=Path, default=DEFAULT_MODEL, help="ONNX 模型")
+    parser.add_argument("--input", type=Path, default=DEFAULT_INPUT, help="输入图片目录")
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="输出目录")
+    parser.add_argument("--conf", type=float, default=CONF_THRESH, help="置信度阈值")
+    parser.add_argument("--iou", type=float, default=IOU_THRESH, help="NMS IOU 阈值")
+    parser.add_argument("--limit", type=int, default=0, help="最多处理图片数，0 表示全部")
+    return parser.parse_args()
+
+
 def main():
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    os.makedirs(MASK_DIR, exist_ok=True)
+    args = parse_args()
+    model_path = args.model.resolve()
+    input_dir = args.input.resolve()
+    output_dir = args.output.resolve()
+    mask_dir = output_dir / "binary_masks"
+    if not model_path.is_file():
+        raise FileNotFoundError(f"ONNX 模型不存在: {model_path}")
+    if not input_dir.is_dir():
+        raise FileNotFoundError(f"输入目录不存在: {input_dir}")
+    if not 0 <= args.conf <= 1 or not 0 <= args.iou <= 1:
+        raise ValueError("置信度阈值和 IOU 阈值必须位于 [0, 1]")
+    if args.limit < 0:
+        raise ValueError("处理数量上限不能小于 0")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    mask_dir.mkdir(parents=True, exist_ok=True)
 
     # 加载 ONNX 模型
-    print(f"加载 ONNX 模型: {ONNX_MODEL}")
-    session = ort.InferenceSession(ONNX_MODEL, providers=["CPUExecutionProvider"])
+    print(f"加载 ONNX 模型: {model_path}")
+    session = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
 
     input_name = session.get_inputs()[0].name
 
     # 获取测试图片
-    img_files = sorted([f for f in os.listdir(INPUT_DIR) if f.endswith(".png")])
+    img_files = sorted(path for path in input_dir.iterdir() if path.suffix.lower() in IMAGE_SUFFIXES)
+    if args.limit:
+        img_files = img_files[: args.limit]
+    if not img_files:
+        raise FileNotFoundError(f"没有找到测试图片: {input_dir}")
     print(f"测试图片数量: {len(img_files)}")
-    print(f"输出目录: {OUTPUT_DIR}\n")
+    print(f"输出目录: {output_dir}\n")
 
     total_detections = 0
 
-    for idx, img_file in enumerate(img_files, 1):
-        img_path = os.path.join(INPUT_DIR, img_file)
-        img = cv2.imread(img_path)
+    for idx, img_path in enumerate(img_files, 1):
+        img = cv2.imread(str(img_path))
+        if img is None:
+            print(f"[{idx}/{len(img_files)}] 无法读取，已跳过: {img_path}")
+            continue
+        orig_height, orig_width = img.shape[:2]
 
         # 预处理（直接 resize，不用 letterbox）
         img_resized = cv2.resize(img, (INPUT_WIDTH, INPUT_HEIGHT))
@@ -271,7 +299,13 @@ def main():
         outputs = session.run(None, {input_name: img_batch})
 
         # 后处理
-        detections, proto = postprocess(outputs)
+        detections, proto = postprocess(outputs, args.conf, args.iou)
+
+        scale_x = orig_width / INPUT_WIDTH
+        scale_y = orig_height / INPUT_HEIGHT
+        for detection in detections:
+            x1, y1, x2, y2 = detection["box"]
+            detection["box"] = [x1 * scale_x, y1 * scale_y, x2 * scale_x, y2 * scale_y]
 
         if len(detections) > 0:
             # 生成 mask
@@ -281,19 +315,23 @@ def main():
             vis_img, binary_mask = visualize(img, detections, masks)
 
             # 保存
-            cv2.imwrite(os.path.join(OUTPUT_DIR, img_file), vis_img)
-            cv2.imwrite(os.path.join(MASK_DIR, img_file), binary_mask)
+            visual_path = output_dir / img_path.name
+            mask_path = mask_dir / img_path.name
+            if not cv2.imwrite(str(visual_path), vis_img):
+                raise OSError(f"可视化图片保存失败: {visual_path}")
+            if not cv2.imwrite(str(mask_path), binary_mask):
+                raise OSError(f"二值掩码保存失败: {mask_path}")
 
             total_detections += len(detections)
-            print(f"[{idx}/{len(img_files)}] {img_file}: {len(detections)} objects")
+            print(f"[{idx}/{len(img_files)}] {img_path.name}: {len(detections)} 个目标")
         else:
-            print(f"[{idx}/{len(img_files)}] {img_file}: 0 objects")
+            print(f"[{idx}/{len(img_files)}] {img_path.name}: 0 个目标")
 
-    print(f"\n完成!")
+    print("\n验证完成！")
     print(f"  总检测数: {total_detections}")
     print(f"  平均每张: {total_detections / len(img_files):.1f} 个")
-    print(f"  可视化结果: {OUTPUT_DIR}")
-    print(f"  二值化 mask: {MASK_DIR}")
+    print(f"  可视化结果: {output_dir}")
+    print(f"  二值掩码: {mask_dir}")
 
 
 if __name__ == "__main__":

@@ -1,28 +1,44 @@
-# Prediction interface for Cog ⚙️
-# https://github.com/replicate/cog/blob/main/docs/python.md
-# Thanks for chenxwh.
-
 import argparse
-import cv2
-import shutil
 import ast
+import os
+import shutil
+import sys
+from pathlib import Path as FilePath
+
+import cv2
+import numpy as np
+import torch
 from cog import BasePredictor, Input, Path
+
+PROJECT_ROOT = FilePath(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from fastsam.demo_utils import (
+    box_prompt,
+    convert_box_xywh_to_xyxy,
+    fast_process,
+    format_results,
+    point_prompt,
+    text_prompt,
+)
 from ultralytics import YOLO
-from utils.tools import *
 
 
 class Predictor(BasePredictor):
     def setup(self):
-        """Load the model into memory to make running multiple predictions efficient"""
-        self.models = {k: YOLO(f"{k}.pt") for k in ["FastSAM-s", "FastSAM-x"]}
+        """加载模型，以便多次请求复用。"""
+        self.models = {
+            "FastSAM": YOLO(str(PROJECT_ROOT / "weights" / "FastSAM.pt"))
+        }
 
     def predict(
         self,
         input_image: Path = Input(description="Input image"),
         model_name: str = Input(
             description="choose a model",
-            choices=["FastSAM-x", "FastSAM-s"],
-            default="FastSAM-x",
+            choices=["FastSAM"],
+            default="FastSAM",
         ),
         iou: float = Input(
             description="iou threshold for filtering the annotations", default=0.7
@@ -44,11 +60,8 @@ class Predictor(BasePredictor):
             description="better quality using morphologyEx", default=False
         ),
     ) -> Path:
-        """Run a single prediction on the model"""
-
-        # default params
-
-        out_path = "output"
+        """执行一次 FastSAM 推理。"""
+        out_path = "/tmp/fastsam-output"
         if os.path.exists(out_path):
             shutil.rmtree(out_path)
         os.makedirs(out_path, exist_ok=True)
@@ -69,7 +82,7 @@ class Predictor(BasePredictor):
             img_path=str(input_image),
             imgsz=1024,
             iou=iou,
-            model_path="FastSAM-x.pt",
+            model_path=str(PROJECT_ROOT / "weights" / "FastSAM.pt"),
             output=out_path,
             point_label=point_label,
             point_prompt=point_prompt,
@@ -131,7 +144,7 @@ class Predictor(BasePredictor):
                 mask_random_color=args.randomcolor,
             )
 
-        out = "/tmp.out.png"
+        out = "/tmp/fastsam-output.png"
         shutil.copy(os.path.join(out_path, os.listdir(out_path)[0]), out)
 
         return Path(out)

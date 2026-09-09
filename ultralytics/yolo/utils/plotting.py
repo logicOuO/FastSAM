@@ -305,7 +305,13 @@ def plot_images(images,
                 paths=None,
                 fname='images.jpg',
                 names=None,
-                on_plot=None):
+                on_plot=None,
+                show_labels=True,
+                show_conf=True,
+                show_boxes=True,
+                mask_alpha=0.6,
+                show_filenames=True,
+                max_subplots=16):
     # Plot image grid with labels
     if isinstance(images, torch.Tensor):
         images = images.cpu().float().numpy()
@@ -321,7 +327,6 @@ def plot_images(images,
         batch_idx = batch_idx.cpu().numpy()
 
     max_size = 1920  # max image size
-    max_subplots = 16  # max image subplots, i.e. 4x4
     bs, _, h, w = images.shape  # batch size, _, height, width
     bs = min(bs, max_subplots)  # limit plot images
     ns = np.ceil(bs ** 0.5)  # number of subplots (square)
@@ -330,9 +335,7 @@ def plot_images(images,
 
     # Build Image
     mosaic = np.full((int(ns * h), int(ns * w), 3), 255, dtype=np.uint8)  # init
-    for i, im in enumerate(images):
-        if i == max_subplots:  # if last batch has fewer images than we expect
-            break
+    for i, im in enumerate(images[:bs]):
         x, y = int(w * (i // ns)), int(h * (i % ns))  # block origin
         im = im.transpose(1, 2, 0)
         mosaic[y:y + h, x:x + w, :] = im
@@ -347,10 +350,10 @@ def plot_images(images,
     # Annotate
     fs = int((h + w) * ns * 0.01)  # font size
     annotator = Annotator(mosaic, line_width=round(fs / 10), font_size=fs, pil=True, example=names)
-    for i in range(i + 1):
+    for i in range(bs):
         x, y = int(w * (i // ns)), int(h * (i % ns))  # block origin
         annotator.rectangle([x, y, x + w, y + h], None, (255, 255, 255), width=2)  # borders
-        if paths:
+        if paths and show_filenames:
             annotator.text((x + 5, y + 5), text=Path(paths[i]).name[:40], txt_color=(220, 220, 220))  # filenames
         if len(cls) > 0:
             idx = batch_idx == i
@@ -374,8 +377,11 @@ def plot_images(images,
                     color = colors(c)
                     c = names.get(c, c) if names else c
                     if labels or conf[j] > 0.25:  # 0.25 conf thresh
-                        label = f'{c}' if labels else f'{c} {conf[j]:.1f}'
-                        annotator.box_label(box, label, color=color)
+                        label = ''
+                        if show_labels:
+                            label = f'{c}' if labels or not show_conf else f'{c} {conf[j]:.1f}'
+                        if show_boxes:
+                            annotator.box_label(box, label, color=color)
             elif len(classes):
                 for c in classes:
                     color = colors(c)
@@ -420,7 +426,11 @@ def plot_images(images,
                         else:
                             mask = image_masks[j].astype(bool)
                         with contextlib.suppress(Exception):
-                            im[y:y + h, x:x + w, :][mask] = im[y:y + h, x:x + w, :][mask] * 0.4 + np.array(color) * 0.6
+                            alpha = min(max(float(mask_alpha), 0.0), 1.0)
+                            im[y:y + h, x:x + w, :][mask] = (
+                                im[y:y + h, x:x + w, :][mask] * (1.0 - alpha)
+                                + np.array(color) * alpha
+                            )
                 annotator.fromarray(im)
     annotator.im.save(fname)  # save
     if on_plot:
@@ -470,7 +480,7 @@ def plot_results(file='path/to/results.csv', dir='', segment=False, pose=False, 
         on_plot(fname)
 
 
-def output_to_target(output, max_det=300):
+def output_to_target(output, max_det=3000):
     """Convert model output to target format [batch_id, class_id, x, y, w, h, conf] for plotting."""
     targets = []
     for i, o in enumerate(output):

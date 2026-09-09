@@ -39,7 +39,12 @@ class SegmentationTrainer(v8.detect.DetectionTrainer):
                     batch['masks'],
                     paths=batch['im_file'],
                     fname=self.save_dir / f'train_batch{ni}.jpg',
-                    on_plot=self.on_plot)
+                    on_plot=self.on_plot,
+                    show_labels=False,
+                    show_conf=False,
+                    mask_alpha=0.25,
+                    show_filenames=False,
+                    max_subplots=1)
 
     def plot_metrics(self):
         """Plots training/val metrics."""

@@ -24,4 +24,4 @@ build:
     - "seaborn==0.12.0"
     - "ultralytics==8.0.121"
     - git+https://github.com/openai/CLIP.git
-predict: "predict.py:Predictor"
+predict: "deploy/replicate/predict.py:Predictor"

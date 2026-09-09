@@ -141,7 +141,7 @@ def non_max_suppression(
         agnostic=False,
         multi_label=False,
         labels=(),
-        max_det=300,
+        max_det=3000,
         nc=0,  # number of classes (optional)
         max_time_img=0.05,
         max_nms=30000,

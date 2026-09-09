@@ -1,0 +1,6 @@
+# 路径相对于本配置文件，训练入口会传入配置文件的绝对路径。
+train: ../data/fastsam/images/train
+val: ../data/fastsam/images/val
+
+nc: 1
+names: [object]

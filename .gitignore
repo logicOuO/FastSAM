@@ -1,70 +1,48 @@
-*.pyc
-*.pyo
-*.pyd
-.DS_Store
-.idea
-# weights/ 目录只有 FastSAM.pt，直接不忽略
+# Python 生成物
+__pycache__/
+*.py[cod]
 build/
 *.egg-info/
-gradio_cached_examples/
-
-# Training outputs
-runs/
-wandb/
-*.log
-
-# Datasets
-datasets/
-data/images/
-data/labels/
-
-# Model exports
-*.onnx
-*.pth
-*.torchscript
-*.engine
-*.tflite
-# Large model files (>100MB, GitHub limit)
-*.pt
-*.rknn
-weights/
-
-# Training scripts (generated)
-# train_*.py
-# export_*.py
-# visualize_*.py
-# compare_*.py
-# test_*.py
-
-# Temporary files
-*.tmp
-*.swp
-*~
 .cache/
-__pycache__/
+.ruff_cache/
 
-# IDE
+# 本地工具和编辑器
+.serena/
+.sisyphus/
 .vscode/
 .idea/
 *.iml
+*.swp
+*~
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Python virtual env
+# 虚拟环境
+.venv/
 venv/
 env/
-.venv/
 
-# Jupyter
-.ipynb_checkpoints/
-*.ipynb
+# 数据集与原始标注
+/data/
 
-# Comparison results
+# 训练和推理输出
+/runs/
+/output/
+wandb/
+*.log
+gradio_cached_examples/
 comparison_*/
 
-dami
+# 模型权重与导出文件
+/weights/
+*.pt
+*.pth
+*.onnx
+*.rknn
+*.torchscript
+*.engine
+*.tflite
 
-*.png
-*.json
+# Jupyter、操作系统文件
+.ipynb_checkpoints/
+*.ipynb
+.DS_Store
+Thumbs.db

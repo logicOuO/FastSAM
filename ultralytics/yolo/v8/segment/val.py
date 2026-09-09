@@ -175,18 +175,28 @@ class SegmentationValidator(DetectionValidator):
                     paths=batch['im_file'],
                     fname=self.save_dir / f'val_batch{ni}_labels.jpg',
                     names=self.names,
-                    on_plot=self.on_plot)
+                    on_plot=self.on_plot,
+                    show_labels=False,
+                    show_conf=False,
+                    mask_alpha=0.25,
+                    show_filenames=False,
+                    max_subplots=1)
 
     def plot_predictions(self, batch, preds, ni):
         """Plots batch predictions with masks and bounding boxes."""
         plot_images(
             batch['img'],
-            *output_to_target(preds[0], max_det=15),  # not set to self.args.max_det due to slow plotting speed
+            *output_to_target(preds[0], max_det=self.args.max_det),
             torch.cat(self.plot_masks, dim=0) if len(self.plot_masks) else self.plot_masks,
             paths=batch['im_file'],
             fname=self.save_dir / f'val_batch{ni}_pred.jpg',
             names=self.names,
-            on_plot=self.on_plot)  # pred
+            on_plot=self.on_plot,
+            show_labels=False,
+            show_conf=False,
+            mask_alpha=0.25,
+            show_filenames=False,
+            max_subplots=1)  # pred
         self.plot_masks.clear()
 
     def pred_to_json(self, predn, filename, pred_masks):
